@@ -60,6 +60,7 @@ class Watch(BaseModel):
     own polling cadence, filters, and scheduling metadata.
     """
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: Optional[str] = None
     name: str
     facility_id: str
     reservation_type: ReservationType
@@ -148,3 +149,39 @@ class WatchUpdate(BaseModel):
     drop_time: Optional[str] = None
     status: Optional[WatchStatus] = None
     filters: Optional[dict] = None
+
+
+# ---------------------------------------------------------------------------
+# Multi-User Authentication & Profile schemas
+# ---------------------------------------------------------------------------
+
+class UserRegister(BaseModel):
+    """Schema for registering a new user."""
+    username: str
+    phone_number: str            # Telegram username (e.g. "@jrosh") or phone number
+    carrier_gateway: str = "telegram"
+    callmebot_key: Optional[str] = ""  # CallMeBot API key (optional for Telegram)
+
+class OTPRequest(BaseModel):
+    """Schema for requesting a login One-Time Password."""
+    username: str
+
+class OTPVerify(BaseModel):
+    """Schema for verifying a One-Time Password."""
+    username: str
+    code: str
+
+class UserOut(BaseModel):
+    """Schema for returning user information."""
+    id: str
+    username: str
+    phone_number: Optional[str] = None
+    carrier_gateway: str = "telegram"
+    created_at: datetime
+
+class UserSettingsUpdate(BaseModel):
+    """Schema for updating user notification preferences."""
+    phone_number: str
+    carrier_gateway: str = "telegram"
+    callmebot_key: Optional[str] = ""
+

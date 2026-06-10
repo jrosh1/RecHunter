@@ -373,7 +373,26 @@ class MonitorEngine:
                     to_notify_slots.append(slot)
 
                 if to_notify_slots:
-                    success = await self.notifier.send_availability_alert(watch, to_notify_slots)
+                    # Dynamically load user credentials if watch.user_id is available
+                    user = None
+                    if watch.user_id:
+                        try:
+                            user = await self.db.get_user_by_id(watch.user_id)
+                        except Exception as u_exc:
+                            logger.error("Failed to load user settings for watch %s: %s", watch_id, u_exc)
+
+                    if user:
+                        # Instantiate notifier dynamically with user specific Telegram settings
+                        user_notifier = SMSNotifier(
+                            gmail_address="",
+                            gmail_app_password=user.get("callmebot_key", ""),
+                            phone_number=user.get("phone_number", ""),
+                            carrier_gateway=user.get("carrier_gateway", "telegram"),
+                        )
+                        success = await user_notifier.send_availability_alert(watch, to_notify_slots)
+                    else:
+                        success = await self.notifier.send_availability_alert(watch, to_notify_slots)
+
                     if success:
                         for slot in to_notify_slots:
                             slot_key = f"{slot.site_id}_{slot.date}"

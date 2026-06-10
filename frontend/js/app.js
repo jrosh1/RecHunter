@@ -633,62 +633,26 @@
 
     // ── Settings ─────────────────────────────────────────────
     function bindSettings() {
-        // Carrier custom toggle
-        $('#setting-carrier').addEventListener('change', (e) => {
-            const customGroup = $('#custom-gateway-group');
-            const whatsappTip = $('#whatsapp-info-tip');
-            const appPassHint = $('label[for="setting-app-password"]').parentElement.querySelector('.form-hint');
-            const gmailHint = $('label[for="setting-gmail"]').parentElement.querySelector('.form-hint');
-
-            customGroup.style.display = e.target.value === '' ? '' : 'none';
-
-            if (e.target.value === 'whatsapp') {
-                if (whatsappTip) {
-                    whatsappTip.style.display = '';
-                    whatsappTip.innerHTML = `💡 <strong>WhatsApp Setup:</strong> Add CallMeBot's number on WhatsApp and send <code>I allow callmebot to send me messages</code> to get your free API key. Enter that key in the <strong>App Password</strong> field above.`;
-                }
-                $('label[for="setting-gmail"]').textContent = 'Gmail Address (Optional)';
-                $('label[for="setting-app-password"]').textContent = 'WhatsApp API Key (CallMeBot)';
-                $('#setting-gmail').placeholder = 'your.email@gmail.com (optional)';
-                $('#setting-app-password').placeholder = '6-digit key (e.g. 123456)';
-                if (appPassHint) appPassHint.textContent = 'Enter the CallMeBot API key received on WhatsApp';
-                if (gmailHint) gmailHint.textContent = 'Only needed if sending email notifications';
-            } else if (e.target.value === 'telegram') {
-                if (whatsappTip) {
-                    whatsappTip.style.display = '';
-                    whatsappTip.innerHTML = `💡 <strong>Telegram Setup:</strong> Message <code>@CallMeBot_txtbot</code> on Telegram and send <code>/start</code> to get your API Key. Enter your Telegram username (e.g. <code>@myusername</code>) in the <strong>Phone Number</strong> field, and the Telegram API key in the <strong>App Password</strong> field above.`;
-                }
-                $('label[for="setting-gmail"]').textContent = 'Gmail Address (Optional)';
-                $('label[for="setting-app-password"]').textContent = 'Telegram API Key (CallMeBot)';
-                $('#setting-gmail').placeholder = 'your.email@gmail.com (optional)';
-                $('#setting-app-password').placeholder = 'CallMeBot API key';
-                if (appPassHint) appPassHint.textContent = 'Enter the CallMeBot API key received on Telegram';
-                if (gmailHint) gmailHint.textContent = 'Only needed if sending email notifications';
-            } else {
-                if (whatsappTip) whatsappTip.style.display = 'none';
-                $('label[for="setting-gmail"]').textContent = 'Gmail Address';
-                $('label[for="setting-app-password"]').textContent = 'App Password';
-                $('#setting-gmail').placeholder = 'your.email@gmail.com';
-                $('#setting-app-password').placeholder = '••••••••••••••••';
-                if (appPassHint) appPassHint.textContent = 'Generate at myaccount.google.com → Security → App passwords';
-                if (gmailHint) gmailHint.textContent = 'Used as the SMTP sender for SMS gateway';
-            }
-        });
-
         // Load settings when switching to tab
         $('#tab-settings').addEventListener('click', loadSettings);
 
         // Save settings
         $('#settings-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const data = gatherSettings();
             const btn = $('#btn-save-settings');
             btn.disabled = true;
             btn.textContent = 'Saving…';
 
+            const phone = $('#setting-telegram').value.trim();
+            const apiKey = $('#setting-callmebot-key').value.trim();
+
             try {
-                await API.updateSettings(data);
-                Components.renderToast('Settings saved!', 'success');
+                await API.updateSettings({
+                    phone_number: phone,
+                    carrier_gateway: 'telegram',
+                    callmebot_key: apiKey
+                });
+                Components.renderToast('Settings saved & verified!', 'success');
             } catch (err) {
                 Components.renderToast(`Save failed: ${err.message}`, 'error');
             }
@@ -697,61 +661,27 @@
             btn.textContent = 'Save Settings';
         });
 
-        // Test SMS
-        $('#btn-test-sms').addEventListener('click', async () => {
-            const btn = $('#btn-test-sms');
-            btn.disabled = true;
-            btn.textContent = '📤 Sending…';
-
+        // Logout
+        $('#btn-logout').addEventListener('click', async () => {
+            if (!confirm('Are you sure you want to log out?')) return;
             try {
-                await API.testNotification();
-                Components.renderToast('Test SMS sent!', 'success');
+                await API.logout();
+                Components.renderToast('Logged out successfully', 'info');
+                setTimeout(() => window.location.reload(), 1000);
             } catch (err) {
-                Components.renderToast(`Test failed: ${err.message}`, 'error');
+                Components.renderToast(`Logout failed: ${err.message}`, 'error');
             }
-
-            btn.disabled = false;
-            btn.textContent = '📤 Send Test SMS';
         });
     }
 
     async function loadSettings() {
         try {
             const s = await API.getSettings();
-            if (s.gmail_address) $('#setting-gmail').value = s.gmail_address;
-            // Don't prefill app password (it's masked server-side)
-            if (s.phone_number) $('#setting-phone').value = s.phone_number;
-            if (s.carrier_gateway) {
-                const sel = $('#setting-carrier');
-                const match = [...sel.options].find(o => o.value === s.carrier_gateway);
-                if (match) {
-                    sel.value = s.carrier_gateway;
-                } else {
-                    sel.value = '';
-                    $('#custom-gateway-group').style.display = '';
-                    $('#setting-custom-gateway').value = s.carrier_gateway;
-                }
-                // Trigger change event to update helper labels
-                sel.dispatchEvent(new Event('change'));
-            }
-        } catch {
-            // settings not yet configured — that's fine
+            if (s.phone_number) $('#setting-telegram').value = s.phone_number;
+            $('#setting-callmebot-key').value = '';
+        } catch (err) {
+            Components.renderToast(`Failed to load settings: ${err.message}`, 'error');
         }
-    }
-
-    function gatherSettings() {
-        const carrier = $('#setting-carrier').value || $('#setting-custom-gateway').value;
-        const data = {
-            gmail_address: $('#setting-gmail').value.trim(),
-            phone_number: $('#setting-phone').value.trim(),
-            carrier_gateway: carrier,
-        };
-
-        const appPass = $('#setting-app-password').value;
-        if (appPass) {
-            data.gmail_app_password = appPass;
-        }
-        return data;
     }
 
 })();

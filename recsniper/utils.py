@@ -344,3 +344,67 @@ def build_booking_url(
         return timed_entry_availability_url(facility_id)
     else:
         return campground_url(facility_id)
+
+
+# ---------------------------------------------------------------------------
+# Authentication Utilities
+# ---------------------------------------------------------------------------
+
+def generate_otp() -> str:
+    """Generate a secure 6-digit numeric One-Time Password."""
+    import secrets
+    return str(secrets.randbelow(900000) + 100000)
+
+
+def sign_token(data: dict, expires_in: int = 86400 * 30) -> str:
+    """Generate a signed base64-encoded token."""
+    import base64
+    import hmac
+    import hashlib
+    import json
+    import time
+
+    secret_key = "recsniper-super-secret-key-12345!"
+    payload = {
+        "data": data,
+        "exp": int(time.time()) + expires_in
+    }
+    payload_bytes = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b'=')
+    signature = hmac.new(secret_key.encode(), payload_bytes, hashlib.sha256).digest()
+    sig_bytes = base64.urlsafe_b64encode(signature).rstrip(b'=')
+    return f"{payload_bytes.decode()}.{sig_bytes.decode()}"
+
+
+def verify_token(token: str) -> Optional[dict]:
+    """Verify and decode a signed base64-encoded token."""
+    import base64
+    import hmac
+    import hashlib
+    import json
+    import time
+
+    secret_key = "recsniper-super-secret-key-12345!"
+    try:
+        parts = token.split(".")
+        if len(parts) != 2:
+            return None
+        payload_part, sig_part = parts[0], parts[1]
+        
+        # Verify signature
+        expected_sig = base64.urlsafe_b64encode(
+            hmac.new(secret_key.encode(), payload_part.encode(), hashlib.sha256).digest()
+        ).rstrip(b'=').decode()
+        
+        if not hmac.compare_digest(sig_part, expected_sig):
+            return None
+            
+        # Decode payload
+        padding = '=' * (4 - len(payload_part) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_part + padding).decode())
+        
+        if payload["exp"] < time.time():
+            return None
+            
+        return payload["data"]
+    except Exception:
+        return None

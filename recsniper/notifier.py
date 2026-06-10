@@ -96,8 +96,9 @@ class SMSNotifier:
         params = {
             "phone": phone,
             "text": message,
-            "apikey": self.gmail_app_password
         }
+        if self.gmail_app_password:
+            params["apikey"] = self.gmail_app_password
 
         logger.info("Sending WhatsApp alert via CallMeBot to {}", phone)
         try:
@@ -124,8 +125,9 @@ class SMSNotifier:
         params = {
             "user": user,
             "text": message,
-            "apikey": self.gmail_app_password
         }
+        if self.gmail_app_password:
+            params["apikey"] = self.gmail_app_password
 
         logger.info("Sending Telegram alert via CallMeBot to {}", user)
         try:
@@ -178,12 +180,15 @@ class SMSNotifier:
             details = "\n".join(site_lines)
 
         # Build reservation type specific book link
-        if watch.reservation_type == "campground":
-            link = f"recreation.gov/camping/campgrounds/{watch.facility_id}"
-        elif watch.reservation_type == "timed_entry":
-            link = f"recreation.gov/timed-entry/{watch.facility_id}"
+        if watch.reservation_type == "timed_entry" and watch.facility_id.startswith("100"):
+            from recsniper.providers.timed_entry import TimedEntryProvider
+            parent_id = TimedEntryProvider._tour_to_facility_cache.get(watch.facility_id)
+            if parent_id:
+                link = f"https://www.recreation.gov/ticket/{parent_id}/ticket/{watch.facility_id}"
+            else:
+                link = build_booking_url(watch.facility_id, watch.reservation_type)
         else:
-            link = f"recreation.gov/permits/{watch.facility_id}"
+            link = build_booking_url(watch.facility_id, watch.reservation_type)
 
         message = (
             f"🌲 RecHunter Alert: {facility_name}\n"

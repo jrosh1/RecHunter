@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 import httpx
 from loguru import logger
@@ -231,6 +231,29 @@ class TimedEntryProvider(BaseProvider):
                 is_available = (status == "OPEN" and remaining_int > 0)
                 if not is_available:
                     continue
+
+                # Filter out slots whose booking windows have not opened yet (not yet released)
+                booking_windows = item.get("booking_windows", {})
+                if booking_windows:
+                    is_future = True
+                    for name, window in booking_windows.items():
+                        if isinstance(window, dict):
+                            open_str = window.get("open_timestamp")
+                            if open_str:
+                                try:
+                                    s = open_str.replace('Z', '+00:00')
+                                    open_dt = datetime.fromisoformat(s)
+                                    if datetime.now(timezone.utc) >= open_dt:
+                                        is_future = False
+                                        break
+                                except Exception:
+                                    is_future = False  # Safe fallback
+                                    break
+                            else:
+                                is_future = False
+                                break
+                    if is_future:
+                        continue
 
                 tour_id = item.get("tour_id", "")
                 tour_time = item.get("tour_time", "")

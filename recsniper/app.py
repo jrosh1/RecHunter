@@ -2,7 +2,7 @@
 RecHunter – FastAPI Application
 ================================
 Central API server that ties together the database, monitoring engine,
-notifier, and the frontend dashboard.
+notifier, and the frontend dashboard with passwordless OTP Telegram authentication.
 
 Run via ``python run.py`` or ``uvicorn recsniper.app:app``.
 """
@@ -13,13 +13,13 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import AsyncGenerator, Set
+from typing import AsyncGenerator, Set, Optional
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
@@ -32,10 +32,22 @@ from recsniper.models import (
     WatchCreate,
     WatchUpdate,
     WatchStatus,
+    UserRegister,
+    OTPRequest,
+    OTPVerify,
+    UserOut,
+    UserSettingsUpdate,
 )
 from recsniper.monitor import MonitorEngine
 from recsniper.notifier import SMSNotifier
-from recsniper.utils import create_http_client, search_facilities, setup_logging
+from recsniper.utils import (
+    create_http_client,
+    search_facilities,
+    setup_logging,
+    generate_otp,
+    sign_token,
+    verify_token,
+)
 
 logger = logging.getLogger("recsniper.app")
 
@@ -47,12 +59,21 @@ _db: Database | None = None
 _engine: MonitorEngine | None = None
 _notifier: SMSNotifier | None = None
 
-# SSE: connected client queues
-_sse_clients: Set[asyncio.Queue] = set()
+# SSE: connected client queues (queue, user_id)
+_sse_clients: Set[tuple[asyncio.Queue, str]] = set()
 
 
 async def _broadcast_event(event: EventLog) -> None:
-    """Push an EventLog to every connected SSE client."""
+    """Push an EventLog to connected SSE clients belonging to the watch owner."""
+    watch_user_id = None
+    if event.watch_id:
+        try:
+            watch = await _db.get_watch(event.watch_id)
+            if watch:
+                watch_user_id = watch.user_id
+        except Exception:
+            pass
+
     ts = event.timestamp if hasattr(event, "timestamp") and event.timestamp else datetime.utcnow()
     ts_str = ts.isoformat() + ("Z" if ts.tzinfo is None else "")
     data = json.dumps(
@@ -66,14 +87,38 @@ async def _broadcast_event(event: EventLog) -> None:
         },
         default=str,
     )
-    dead: list[asyncio.Queue] = []
-    for q in _sse_clients:
+    dead: list[tuple[asyncio.Queue, str]] = []
+    for q, uid in list(_sse_clients):
+        # Filter: only broadcast if the event belongs to the client's user_id or is a global/system event
+        if watch_user_id and uid != watch_user_id:
+            continue
         try:
             q.put_nowait(data)
         except asyncio.QueueFull:
-            dead.append(q)
-    for q in dead:
-        _sse_clients.discard(q)
+            dead.append((q, uid))
+    for client in dead:
+        _sse_clients.discard(client)
+
+
+# ---------------------------------------------------------------------------
+# Authentication Helper / Dependency
+# ---------------------------------------------------------------------------
+
+async def get_current_user(request: Request) -> dict:
+    """Helper to authenticate requests using cookie-based signed session tokens."""
+    token = request.cookies.get("recsniper_session")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+        
+    token_data = verify_token(token)
+    if not token_data or "user_id" not in token_data:
+        raise HTTPException(status_code=401, detail="Invalid session or session expired")
+        
+    user = await _db.get_user_by_id(token_data["user_id"])
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+        
+    return user
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +161,7 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(
     title="RecHunter",
-    description="Recreation.gov availability monitoring agent",
+    description="Recreation.gov availability monitoring agent with multi-user Telegram auth",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -141,31 +186,217 @@ if _frontend_dir.is_dir():
 # ---------------------------------------------------------------------------
 
 @app.get("/", include_in_schema=False)
-async def root():
-    index = _frontend_dir / "index.html"
-    if index.is_file():
-        return FileResponse(str(index), media_type="text/html")
-    return JSONResponse(
-        {"message": "RecHunter API is running. Frontend not found – place files in frontend/."},
-        status_code=200,
-    )
+async def root(request: Request):
+    try:
+        await get_current_user(request)
+        index = _frontend_dir / "index.html"
+        if index.is_file():
+            return FileResponse(str(index), media_type="text/html")
+        return JSONResponse(
+            {"message": "RecHunter API is running. Frontend not found – place files in frontend/."},
+            status_code=200,
+        )
+    except HTTPException:
+        return RedirectResponse(url="/login", status_code=307)
+
+
+@app.get("/login", include_in_schema=False)
+async def login_page(request: Request):
+    try:
+        await get_current_user(request)
+        return RedirectResponse(url="/", status_code=307)
+    except HTTPException:
+        login_html = _frontend_dir / "login.html"
+        if login_html.is_file():
+            return FileResponse(str(login_html), media_type="text/html")
+        return JSONResponse(
+            {"message": "RecHunter API is running. Login page not found – place files in frontend/."},
+            status_code=200,
+        )
 
 
 # ---------------------------------------------------------------------------
-# Watches CRUD
+# Passwordless Auth Endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/auth/register", status_code=201)
+async def register(payload: UserRegister):
+    """Register a new user and send a verification OTP to Telegram."""
+    existing = await _db.get_user_by_username(payload.username)
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
+
+    import uuid
+    user_id = str(uuid.uuid4())
+
+    # Create the user directly
+    await _db.create_user(
+        user_id=user_id,
+        username=payload.username,
+        phone_number=payload.phone_number,
+        carrier_gateway=payload.carrier_gateway or "telegram",
+        callmebot_key=payload.callmebot_key
+    )
+
+    # Generate and store OTP code
+    code = generate_otp()
+    await _db.create_otp(user_id, code, expires_in_minutes=5)
+
+    # Send initial activation code via CallMeBot
+    temp_notifier = SMSNotifier(
+        gmail_address="",
+        gmail_app_password=payload.callmebot_key,
+        phone_number=payload.phone_number,
+        carrier_gateway=payload.carrier_gateway or "telegram"
+    )
+
+    msg = f"🎯 RecHunter Registration Code: {code} (expires in 5 min)"
+    sent = await temp_notifier.send_sms(msg)
+    if not sent:
+        # Roll back user creation
+        await _db._conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        await _db._conn.commit()
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to send Telegram message. Please check that you have started the @CallMeBot_txtbot on Telegram and that your API key is correct."
+        )
+
+    return {"message": "Verification code sent to Telegram. Please check your messages.", "username": payload.username}
+
+
+@app.post("/api/auth/request-otp")
+async def request_otp(payload: OTPRequest):
+    """Generate and send login OTP to the user's registered Telegram account."""
+    user = await _db.get_user_by_username(payload.username)
+    if not user:
+        raise HTTPException(status_code=404, detail="Username not found")
+
+    user_id = user["id"]
+    code = generate_otp()
+    await _db.create_otp(user_id, code, expires_in_minutes=5)
+
+    temp_notifier = SMSNotifier(
+        gmail_address="",
+        gmail_app_password=user["callmebot_key"],
+        phone_number=user["phone_number"],
+        carrier_gateway=user["carrier_gateway"]
+    )
+
+    msg = f"🔑 RecHunter Login Code: {code} (expires in 5 min)"
+    sent = await temp_notifier.send_sms(msg)
+    if not sent:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to send OTP to Telegram. Please verify your CallMeBot configuration."
+        )
+
+    return {"message": "Verification code sent to Telegram."}
+
+
+@app.post("/api/auth/verify-otp")
+async def verify_otp(payload: OTPVerify, response: Response):
+    """Validate OTP and issue a cookie-based session token."""
+    user = await _db.get_user_by_username(payload.username)
+    if not user:
+        raise HTTPException(status_code=404, detail="Username not found")
+
+    is_valid = await _db.verify_otp(user["id"], payload.code)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail="Invalid or expired verification code")
+
+    token_data = {"user_id": user["id"], "username": user["username"]}
+    token = sign_token(token_data)
+
+    response.set_cookie(
+        key="recsniper_session",
+        value=token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=86400 * 30  # 30 days
+    )
+
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "phone_number": user["phone_number"],
+        "carrier_gateway": user["carrier_gateway"]
+    }
+
+
+@app.post("/api/auth/logout")
+async def logout(response: Response):
+    """Log the user out by deleting the session cookie."""
+    response.delete_cookie(key="recsniper_session")
+    return {"message": "Logged out successfully"}
+
+
+@app.get("/api/auth/me")
+async def get_me(request: Request):
+    """Retrieve details for the currently authenticated session."""
+    user = await get_current_user(request)
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "phone_number": user["phone_number"],
+        "carrier_gateway": user["carrier_gateway"]
+    }
+
+
+@app.put("/api/auth/settings")
+async def update_user_settings(payload: UserSettingsUpdate, request: Request):
+    """Update notification credentials for the authenticated user."""
+    user = await get_current_user(request)
+    
+    # Send a quick test to make sure new settings work!
+    temp_notifier = SMSNotifier(
+        gmail_address="",
+        gmail_app_password=payload.callmebot_key,
+        phone_number=payload.phone_number,
+        carrier_gateway=payload.carrier_gateway or "telegram"
+    )
+    msg = "⚙️ RecHunter settings updated successfully!"
+    sent = await temp_notifier.send_sms(msg)
+    if not sent:
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to send verification to Telegram with new settings. Please verify details."
+        )
+
+    updated = await _db.update_user_settings(
+        user_id=user["id"],
+        phone_number=payload.phone_number,
+        carrier_gateway=payload.carrier_gateway or "telegram",
+        callmebot_key=payload.callmebot_key
+    )
+    return {
+        "id": updated["id"],
+        "username": updated["username"],
+        "phone_number": updated["phone_number"],
+        "carrier_gateway": updated["carrier_gateway"]
+    }
+
+
+# ---------------------------------------------------------------------------
+# Watches CRUD (User-Scoped)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/watches")
-async def list_watches():
-    """Return all watches."""
-    watches = await _db.list_watches()
+async def list_watches(request: Request):
+    """Return all watches owned by the authenticated user."""
+    user = await get_current_user(request)
+    watches = await _db.list_watches(user_id=user["id"])
     return [_watch_to_dict(w) for w in watches]
 
 
 @app.post("/api/watches", status_code=201)
-async def create_watch(payload: WatchCreate):
-    """Create a new watch and register it with the monitor engine."""
-    watch = Watch(**payload.model_dump())
+async def create_watch(payload: WatchCreate, request: Request):
+    """Create a new watch owned by the authenticated user."""
+    user = await get_current_user(request)
+    watch_data = payload.model_dump()
+    watch_data["user_id"] = user["id"]
+    
+    watch = Watch(**watch_data)
     created = await _db.create_watch(watch)
 
     # Register with scheduler
@@ -180,7 +411,7 @@ async def create_watch(payload: WatchCreate):
     await _db.add_event_log(event)
     await _broadcast_event(event)
 
-    # Trigger an immediate check in the background for instant feedback!
+    # Trigger immediate check in the background
     if created.status == WatchStatus.ACTIVE:
         asyncio.create_task(_engine.run_check_now(created.id))
 
@@ -188,18 +419,20 @@ async def create_watch(payload: WatchCreate):
 
 
 @app.get("/api/watches/{watch_id}")
-async def get_watch(watch_id: str):
-    """Get a single watch by ID."""
-    watch = await _db.get_watch(watch_id)
+async def get_watch(watch_id: str, request: Request):
+    """Get a watch by ID, scoping it to the authenticated user."""
+    user = await get_current_user(request)
+    watch = await _db.get_watch(watch_id, user_id=user["id"])
     if not watch:
         raise HTTPException(status_code=404, detail="Watch not found")
     return _watch_to_dict(watch)
 
 
 @app.put("/api/watches/{watch_id}")
-async def update_watch(watch_id: str, payload: WatchUpdate):
-    """Update a watch and reschedule it if needed."""
-    watch = await _db.get_watch(watch_id)
+async def update_watch(watch_id: str, payload: WatchUpdate, request: Request):
+    """Update a watch, scoping it to the authenticated user."""
+    user = await get_current_user(request)
+    watch = await _db.get_watch(watch_id, user_id=user["id"])
     if not watch:
         raise HTTPException(status_code=404, detail="Watch not found")
 
@@ -207,7 +440,7 @@ async def update_watch(watch_id: str, payload: WatchUpdate):
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
-    updated = await _db.update_watch(watch_id, **updates)
+    updated = await _db.update_watch(watch_id, user_id=user["id"], **updates)
 
     # Reschedule in the engine
     await _engine.reschedule_watch(updated)
@@ -225,14 +458,15 @@ async def update_watch(watch_id: str, payload: WatchUpdate):
 
 
 @app.delete("/api/watches/{watch_id}", status_code=204)
-async def delete_watch(watch_id: str):
-    """Delete a watch and unschedule it."""
-    watch = await _db.get_watch(watch_id)
+async def delete_watch(watch_id: str, request: Request):
+    """Delete a watch, scoping it to the authenticated user."""
+    user = await get_current_user(request)
+    watch = await _db.get_watch(watch_id, user_id=user["id"])
     if not watch:
         raise HTTPException(status_code=404, detail="Watch not found")
 
     await _engine.remove_watch(watch_id)
-    await _db.delete_watch(watch_id)
+    await _db.delete_watch(watch_id, user_id=user["id"])
 
     event = EventLog(
         event_type="watch_deleted",
@@ -245,13 +479,13 @@ async def delete_watch(watch_id: str):
 
 
 @app.post("/api/watches/{watch_id}/check")
-async def trigger_check(watch_id: str):
-    """Trigger an immediate availability check for a watch."""
-    watch = await _db.get_watch(watch_id)
+async def trigger_check(watch_id: str, request: Request):
+    """Trigger an immediate check, scoping it to the authenticated user."""
+    user = await get_current_user(request)
+    watch = await _db.get_watch(watch_id, user_id=user["id"])
     if not watch:
         raise HTTPException(status_code=404, detail="Watch not found")
 
-    # Run the check in the background so the API responds quickly
     asyncio.create_task(_engine.run_check_now(watch_id))
     return {"message": f"Check triggered for '{watch.name}'", "watch_id": watch_id}
 
@@ -261,8 +495,10 @@ async def trigger_check(watch_id: str):
 # ---------------------------------------------------------------------------
 
 @app.get("/api/search")
-async def search(q: str = Query(..., min_length=2, description="Facility search query")):
+async def search(q: str = Query(..., min_length=2, description="Facility search query"), request: Request = None):
     """Proxy search to the Recreation.gov search API."""
+    if request:
+        await get_current_user(request)
     try:
         results = await search_facilities(q)
         return results
@@ -272,10 +508,11 @@ async def search(q: str = Query(..., min_length=2, description="Facility search 
 
 
 @app.get("/api/facilities/{facility_id}/sub-entities")
-async def get_facility_sub_entities(facility_id: str, type: str = Query(..., description="Reservation type")):
+async def get_facility_sub_entities(facility_id: str, type: str = Query(..., description="Reservation type"), request: Request = None):
     """Retrieve sub-entities (entrances or tours) for a facility."""
+    if request:
+        await get_current_user(request)
     if type == "permit":
-        # Fetch from permitcontent endpoint
         url = f"https://www.recreation.gov/api/permitcontent/{facility_id}"
         try:
             async with create_http_client() as client:
@@ -328,7 +565,6 @@ async def get_facility_sub_entities(facility_id: str, type: str = Query(..., des
             logger.error("Failed to fetch permit content entrances for %s: %s", facility_id, exc)
 
     elif type == "timed_entry":
-        # Fetch from ticket facility tour endpoint
         url = f"https://www.recreation.gov/api/ticket/facility/{facility_id}/tour"
         try:
             async with create_http_client() as client:
@@ -357,122 +593,62 @@ async def get_facility_sub_entities(facility_id: str, type: str = Query(..., des
 # ---------------------------------------------------------------------------
 
 @app.get("/api/logs")
-async def get_logs(limit: int = Query(50, ge=1, le=500)):
-    """Return recent event logs."""
-    events = await _db.get_recent_events(limit=limit)
+async def get_logs(request: Request, limit: int = Query(50, ge=1, le=500)):
+    """Return recent event logs for the authenticated user's watches."""
+    user = await get_current_user(request)
+    events = await _db.get_recent_events(user_id=user["id"], limit=limit)
     return events
 
 
 # ---------------------------------------------------------------------------
-# Notifications
-# ---------------------------------------------------------------------------
-
-@app.post("/api/notifications/test")
-async def test_notification():
-    """Send a test SMS to verify notification setup."""
-    try:
-        success = await _notifier.send_test()
-        if success:
-            event = EventLog(
-                event_type="test_sms_sent",
-                watch_id="",
-                watch_name="",
-                message="Test SMS sent successfully",
-            )
-            await _db.add_event_log(event)
-            await _broadcast_event(event)
-            return {"success": True, "message": "Test SMS sent successfully"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to send test SMS")
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("Test notification failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Test notification failed: {str(exc)}")
-
-
-# ---------------------------------------------------------------------------
-# Settings
-# ---------------------------------------------------------------------------
-
-@app.get("/api/settings")
-async def get_settings():
-    """Return current notification settings (sensitive values masked)."""
-    return {
-        "gmail_address": settings.gmail_address or "",
-        "gmail_app_password_set": bool(settings.gmail_app_password),
-        "phone_number": settings.phone_number or "",
-        "carrier_gateway": settings.carrier_gateway or "",
-        "ridb_api_key_set": bool(settings.ridb_api_key),
-        "host": settings.host,
-        "port": settings.port,
-    }
-
-
-@app.put("/api/settings")
-async def update_settings(payload: NotificationSettings):
-    """
-    Update runtime notification settings.
-
-    Note: These changes are applied in-memory only and do not persist across
-    restarts.  For persistent changes, edit your ``.env`` or ``config.yaml``.
-    """
-    if payload.gmail_address:
-        settings.gmail_address = payload.gmail_address
-        _notifier.gmail_address = payload.gmail_address
-    if payload.phone_number:
-        settings.phone_number = payload.phone_number
-        _notifier.phone_number = payload.phone_number
-    if payload.carrier_gateway:
-        settings.carrier_gateway = payload.carrier_gateway
-        _notifier.carrier_gateway = payload.carrier_gateway
-    if payload.gmail_app_password:
-        settings.gmail_app_password = payload.gmail_app_password
-        _notifier.gmail_app_password = payload.gmail_app_password
-
-    event = EventLog(
-        event_type="settings_updated",
-        watch_id="",
-        watch_name="",
-        message="Notification settings updated",
-    )
-    await _db.add_event_log(event)
-    await _broadcast_event(event)
-
-    return {"message": "Settings updated"}
-
-
-# ---------------------------------------------------------------------------
-# Engine status
+# Global Status
 # ---------------------------------------------------------------------------
 
 @app.get("/api/status")
-async def get_status():
-    """Return monitoring engine status."""
+async def get_status(request: Request):
+    """Return monitoring engine status and total user watches."""
+    user = await get_current_user(request)
     status = _engine.get_status()
     try:
-        watches = await _db.list_watches()
+        watches = await _db.list_watches(user_id=user["id"])
         status["total_watches"] = len(watches)
-    except Exception:
+        # Scope active watches count to this user
+        status["active_watches"] = len([w for w in watches if w.status in (WatchStatus.ACTIVE, WatchStatus.TRIGGERED)])
+        
+        # Scope total checks count to this user (checks in the last 24 hours)
+        cutoff = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+        cursor = await _db._conn.execute(
+            """
+            SELECT COUNT(*) FROM event_log e
+            JOIN watches w ON e.watch_id = w.id
+            WHERE w.user_id = ? AND e.event_type IN ('check_complete', 'availability_found') AND e.timestamp >= ?
+            """,
+            (user["id"], cutoff),
+        )
+        row = await cursor.fetchone()
+        status["total_checks"] = row[0] if row else 0
+    except Exception as exc:
+        logger.error("Failed to calculate user status stats: %s", exc)
         status["total_watches"] = 0
+        status["active_watches"] = 0
+        status["total_checks"] = 0
     return status
 
 
 # ---------------------------------------------------------------------------
-# SSE – Server-Sent Events
+# SSE – Server-Sent Events (User-Filtered)
 # ---------------------------------------------------------------------------
 
 @app.get("/api/events")
 async def sse_events(request: Request):
-    """
-    SSE stream of real-time events from the monitoring engine.
-
-    The dashboard connects here for live updates.
-    """
+    """SSE stream of real-time events scoped to the authenticated user."""
+    user = await get_current_user(request)
+    user_id = user["id"]
 
     async def event_generator() -> AsyncGenerator[dict, None]:
         queue: asyncio.Queue = asyncio.Queue(maxsize=256)
-        _sse_clients.add(queue)
+        client_tuple = (queue, user_id)
+        _sse_clients.add(client_tuple)
         try:
             while True:
                 if await request.is_disconnected():
@@ -481,10 +657,9 @@ async def sse_events(request: Request):
                     data = await asyncio.wait_for(queue.get(), timeout=30.0)
                     yield {"event": "message", "data": data}
                 except asyncio.TimeoutError:
-                    # Send keepalive comment to prevent proxy/browser timeouts
                     yield {"event": "ping", "data": ""}
         finally:
-            _sse_clients.discard(queue)
+            _sse_clients.discard(client_tuple)
 
     return EventSourceResponse(event_generator())
 
@@ -505,7 +680,6 @@ def _watch_to_dict(watch: Watch) -> dict:
         if value is None:
             data[field] = None
         elif hasattr(value, "value"):
-            # Enum
             data[field] = value.value
         elif isinstance(value, datetime):
             data[field] = value.isoformat() + ("Z" if value.tzinfo is None else "")

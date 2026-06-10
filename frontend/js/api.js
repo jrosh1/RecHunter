@@ -18,6 +18,12 @@ const API = {
         const headers = { 'Content-Type': 'application/json', ...options.headers };
         try {
             const res = await fetch(url, { ...options, headers });
+            if (res.status === 401) {
+                if (window.location.pathname !== '/login' && window.location.pathname !== '/login.html') {
+                    window.location.href = '/login';
+                }
+                throw new Error(`API 401: Not authenticated`);
+            }
             if (!res.ok) {
                 let detail = res.statusText;
                 try {
@@ -98,21 +104,57 @@ const API = {
 
     /** Get notification settings. */
     async getSettings() {
-        return this._request('/api/settings');
+        return this.getMe();
     },
 
     /** Update notification settings. */
     async updateSettings(data) {
-        return this._request('/api/settings', {
-            method: 'PUT',
-            body: JSON.stringify(data),
-        });
+        return this.updateUserSettings(data);
     },
 
     /** Send a test SMS notification. */
     async testNotification() {
         return this._request('/api/notifications/test', {
             method: 'POST',
+        });
+    },
+
+    // ── Auth ─────────────────────────────────────────────────
+    async register(data) {
+        return this._request('/api/auth/register', {
+            method: 'POST',
+            body: JSON.stringify(data),
+        });
+    },
+
+    async requestOTP(username) {
+        return this._request('/api/auth/request-otp', {
+            method: 'POST',
+            body: JSON.stringify({ username }),
+        });
+    },
+
+    async verifyOTP(username, code) {
+        return this._request('/api/auth/verify-otp', {
+            method: 'POST',
+            body: JSON.stringify({ username, code }),
+        });
+    },
+
+    async logout() {
+        return this._request('/api/auth/logout', {
+            method: 'POST',
+        });
+    },
+
+    async getMe() {
+        return this._request('/api/auth/me');
+    },
+
+    async updateUserSettings(data) {
+        return this._request('/api/auth/settings', {
+            method: 'PUT',
+            body: JSON.stringify(data),
         });
     },
 

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0a0b10">
+    <title>RecHunter — Log In</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/styles.css?v=4">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #0a0b10;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .login-container {
+            width: 100%;
+            max-width: 440px;
+            animation: scaleIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="auth-card glass">
+            <div class="auth-header">
+                <span class="auth-logo-icon">🎯</span>
+                <h1 class="auth-title">Rec<span class="logo-highlight">Hunter</span></h1>
+                <p class="auth-subtitle">Passwordless Telegram Verification</p>
+            </div>
+            
+            <div class="auth-tabs">
+                <button id="auth-tab-login" class="auth-tab active">Log In</button>
+                <button id="auth-tab-register" class="auth-tab">Register</button>
+            </div>
+
+            <!-- Login Form -->
+            <form id="auth-login-form" class="auth-form">
+                <div class="form-group">
+                    <label for="auth-login-username">Username</label>
+                    <input type="text" id="auth-login-username" placeholder="Enter your username" required>
+                </div>
+                <div class="form-group otp-group" style="display: none;">
+                    <label for="auth-login-otp">6-Digit verification code</label>
+                    <input type="text" id="auth-login-otp" placeholder="123456" maxlength="6">
+                    <span class="form-hint">Sent to your Telegram account via @CallMeBot_txtbot</span>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block" id="btn-login-submit">
+                    Send Login Code
+                </button>
+            </form>
+
+            <!-- Register Form -->
+            <form id="auth-register-form" class="auth-form" style="display: none;">
+                <div class="form-group">
+                    <label for="auth-reg-username">Username</label>
+                    <input type="text" id="auth-reg-username" placeholder="Choose a username" required>
+                </div>
+                <div class="form-group">
+                    <label for="auth-reg-telegram">Telegram Username</label>
+                    <input type="text" id="auth-reg-telegram" placeholder="@yourusername" required>
+                </div>
+                <div class="form-group">
+                    <label for="auth-reg-callmebot">CallMeBot API Key <span class="optional">(Optional)</span></label>
+                    <input type="text" id="auth-reg-callmebot" placeholder="e.g. 123456">
+                    <span class="form-hint">Start <code>@CallMeBot_txtbot</code> on Telegram. A key is only needed if your account requires one.</span>
+                </div>
+                <div class="form-group otp-group-reg" style="display: none;">
+                    <label for="auth-reg-otp">6-Digit activation code</label>
+                    <input type="text" id="auth-reg-otp" placeholder="123456" maxlength="6">
+                    <span class="form-hint">Sent to your Telegram account via @CallMeBot_txtbot</span>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block" id="btn-register-submit">
+                    Send Activation Code
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="/static/js/api.js?v=4"></script>
+    <script src="/static/js/components.js?v=4"></script>
+    <script src="/static/js/login.js?v=4"></script>
+</body>
+</html>

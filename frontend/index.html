@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/styles.css?v=3">
+    <link rel="stylesheet" href="/static/css/styles.css?v=4">
 </head>
 <body>
     <!-- Header -->
@@ -119,52 +119,26 @@
                 <!-- Notification Settings -->
                 <div class="settings-card">
                     <div class="settings-header">
-                        <h2>📱 Notification Settings</h2>
-                        <p class="settings-desc">Configure SMS notifications via Gmail SMTP gateway.</p>
+                        <h2>✈️ Telegram Notification Settings</h2>
+                        <p class="settings-desc">Configure RecHunter to alert you directly on Telegram.</p>
                     </div>
                     <form id="settings-form" class="settings-form">
                         <div class="form-group">
-                            <label for="setting-gmail">Gmail Address</label>
-                            <input type="email" id="setting-gmail" placeholder="your.email@gmail.com" autocomplete="email">
-                            <span class="form-hint">Used as the SMTP sender for SMS gateway</span>
+                            <label for="setting-telegram">Telegram Username</label>
+                            <input type="text" id="setting-telegram" placeholder="@yourusername" required>
+                            <span class="form-hint">Your Telegram username (e.g., @jrosh)</span>
                         </div>
                         <div class="form-group">
-                            <label for="setting-app-password">App Password</label>
-                            <input type="password" id="setting-app-password" placeholder="••••••••••••••••" autocomplete="current-password">
-                            <span class="form-hint">Generate at myaccount.google.com → Security → App passwords</span>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="setting-phone">Phone Number</label>
-                                <input type="tel" id="setting-phone" placeholder="5551234567" autocomplete="tel">
-                            </div>
-                            <div class="form-group">
-                                <label for="setting-carrier">Carrier Gateway</label>
-                                <select id="setting-carrier">
-                                    <option value="tmomail.net">T-Mobile</option>
-                                    <option value="vtext.com">Verizon</option>
-                                    <option value="txt.att.net">AT&T</option>
-                                    <option value="messaging.sprintpcs.com">Sprint</option>
-                                    <option value="msg.fi.google.com">Google Fi</option>
-                                    <option value="whatsapp">💬 WhatsApp (CallMeBot)</option>
-                                    <option value="telegram">✈️ Telegram (CallMeBot)</option>
-                                    <option value="">Custom…</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="form-group" id="whatsapp-info-tip" style="display:none; color: var(--color-text-secondary); font-size: 0.85rem; margin-top: -10px; margin-bottom: 15px;">
-                            💡 <strong>WhatsApp Setup:</strong> Add CallMeBot's number on WhatsApp and send <code>I allow callmebot to send me messages</code> to get your free API key. Enter that key in the <strong>App Password</strong> field above.
-                        </div>
-                        <div class="form-group" id="custom-gateway-group" style="display:none;">
-                            <label for="setting-custom-gateway">Custom Gateway Domain</label>
-                            <input type="text" id="setting-custom-gateway" placeholder="e.g. sms.mycarrier.com">
+                            <label for="setting-callmebot-key">CallMeBot API Key <span class="optional">(Optional)</span></label>
+                            <input type="password" id="setting-callmebot-key" placeholder="••••••">
+                            <span class="form-hint">Only required if your account needs an API key to receive messages.</span>
                         </div>
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary" id="btn-save-settings">
                                 Save Settings
                             </button>
-                            <button type="button" class="btn btn-outline" id="btn-test-sms">
-                                📤 Send Test SMS
+                            <button type="button" class="btn btn-outline" id="btn-logout">
+                                🚪 Log Out
                             </button>
                         </div>
                     </form>
@@ -346,8 +320,8 @@
         </div>
     </div>
 
-    <script src="/static/js/api.js?v=3" defer></script>
-    <script src="/static/js/components.js?v=3" defer></script>
-    <script src="/static/js/app.js?v=3" defer></script>
+    <script src="/static/js/api.js?v=4" defer></script>
+    <script src="/static/js/components.js?v=4" defer></script>
+    <script src="/static/js/app.js?v=4" defer></script>
 </body>
 </html>
