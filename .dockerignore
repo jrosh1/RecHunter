@@ -1,0 +1,25 @@
+# Exclude python cache
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+
+# Exclude local RecSniper data
+data/
+*.db
+*.log
+oly_page.html
+
+# Exclude scratch scripts
+scratch/
+
+# Exclude git directories
+.git/
+.gitignore
+
+# Exclude IDE folders
+.vscode/
+.idea/

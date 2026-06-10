@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="RecHunter — Premium Recreation.gov availability monitoring dashboard. Track campgrounds, permits, and timed-entry reservations in real time.">
+    <meta name="theme-color" content="#0a0b10">
+    <title>RecHunter — Recreation.gov Monitor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/styles.css?v=3">
+</head>
+<body>
+    <!-- Header -->
+    <header id="app-header">
+        <div class="header-left">
+            <div class="logo">
+                <span class="logo-icon">🌲</span>
+                <span class="logo-text">Rec<span class="logo-highlight">Hunter</span></span>
+            </div>
+            <div class="engine-status" id="engine-status">
+                <span class="status-dot" id="status-dot"></span>
+                <span class="status-label" id="status-label">Connecting…</span>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="uptime" id="uptime">
+                <span class="uptime-label">Uptime</span>
+                <span class="uptime-value" id="uptime-value">--:--:--</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav id="main-nav">
+        <button class="nav-tab active" data-tab="dashboard" id="tab-dashboard">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            Dashboard
+        </button>
+        <button class="nav-tab" data-tab="settings" id="tab-settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+            Settings
+        </button>
+    </nav>
+
+    <!-- Main Content -->
+    <main id="main-content">
+        <!-- Dashboard View -->
+        <section id="view-dashboard" class="view active">
+            <!-- Stats Bar -->
+            <div class="stats-bar" id="stats-bar">
+                <div class="stat-card" id="stat-total-watches">
+                    <div class="stat-icon">👁️</div>
+                    <div class="stat-info">
+                        <span class="stat-value" data-stat="totalWatches">0</span>
+                        <span class="stat-label">Total Watches</span>
+                    </div>
+                </div>
+                <div class="stat-card" id="stat-active-watches">
+                    <div class="stat-icon">⚡</div>
+                    <div class="stat-info">
+                        <span class="stat-value" data-stat="activeWatches">0</span>
+                        <span class="stat-label">Active</span>
+                    </div>
+                </div>
+                <div class="stat-card" id="stat-total-checks">
+                    <div class="stat-icon">🔍</div>
+                    <div class="stat-info">
+                        <span class="stat-value" data-stat="totalChecks">0</span>
+                        <span class="stat-label">Checks Today</span>
+                    </div>
+                </div>
+                <div class="stat-card" id="stat-last-alert">
+                    <div class="stat-icon">🔔</div>
+                    <div class="stat-info">
+                        <span class="stat-value" data-stat="lastAlert">—</span>
+                        <span class="stat-label">Last Alert</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Bar -->
+            <div class="action-bar">
+                <h2 class="section-title">Watches</h2>
+                <button class="btn btn-primary" id="btn-add-watch">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Add Watch
+                </button>
+            </div>
+
+            <!-- Watch Grid -->
+            <div class="watch-grid" id="watch-grid">
+                <div class="empty-state" id="empty-state">
+                    <div class="empty-icon">🏕️</div>
+                    <h3>No watches yet</h3>
+                    <p>Start monitoring Recreation.gov by adding your first watch.</p>
+                    <button class="btn btn-primary btn-sm" id="btn-add-watch-empty">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Add Your First Watch
+                    </button>
+                </div>
+            </div>
+
+            <!-- Activity Feed -->
+            <div class="activity-section">
+                <h2 class="section-title">Activity Feed</h2>
+                <div class="activity-feed" id="activity-feed">
+                    <div class="empty-state small" id="activity-empty">
+                        <p>No recent activity. Events will appear here in real time.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Settings View -->
+        <section id="view-settings" class="view">
+            <div class="settings-container">
+                <!-- Notification Settings -->
+                <div class="settings-card">
+                    <div class="settings-header">
+                        <h2>📱 Notification Settings</h2>
+                        <p class="settings-desc">Configure SMS notifications via Gmail SMTP gateway.</p>
+                    </div>
+                    <form id="settings-form" class="settings-form">
+                        <div class="form-group">
+                            <label for="setting-gmail">Gmail Address</label>
+                            <input type="email" id="setting-gmail" placeholder="your.email@gmail.com" autocomplete="email">
+                            <span class="form-hint">Used as the SMTP sender for SMS gateway</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="setting-app-password">App Password</label>
+                            <input type="password" id="setting-app-password" placeholder="••••••••••••••••" autocomplete="current-password">
+                            <span class="form-hint">Generate at myaccount.google.com → Security → App passwords</span>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="setting-phone">Phone Number</label>
+                                <input type="tel" id="setting-phone" placeholder="5551234567" autocomplete="tel">
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-carrier">Carrier Gateway</label>
+                                <select id="setting-carrier">
+                                    <option value="tmomail.net">T-Mobile</option>
+                                    <option value="vtext.com">Verizon</option>
+                                    <option value="txt.att.net">AT&T</option>
+                                    <option value="messaging.sprintpcs.com">Sprint</option>
+                                    <option value="msg.fi.google.com">Google Fi</option>
+                                    <option value="whatsapp">💬 WhatsApp (CallMeBot)</option>
+                                    <option value="telegram">✈️ Telegram (CallMeBot)</option>
+                                    <option value="">Custom…</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group" id="whatsapp-info-tip" style="display:none; color: var(--color-text-secondary); font-size: 0.85rem; margin-top: -10px; margin-bottom: 15px;">
+                            💡 <strong>WhatsApp Setup:</strong> Add CallMeBot's number on WhatsApp and send <code>I allow callmebot to send me messages</code> to get your free API key. Enter that key in the <strong>App Password</strong> field above.
+                        </div>
+                        <div class="form-group" id="custom-gateway-group" style="display:none;">
+                            <label for="setting-custom-gateway">Custom Gateway Domain</label>
+                            <input type="text" id="setting-custom-gateway" placeholder="e.g. sms.mycarrier.com">
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary" id="btn-save-settings">
+                                Save Settings
+                            </button>
+                            <button type="button" class="btn btn-outline" id="btn-test-sms">
+                                📤 Send Test SMS
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- About Section -->
+                <div class="settings-card">
+                    <div class="settings-header">
+                        <h2>ℹ️ About RecHunter</h2>
+                    </div>
+                    <div class="about-content">
+                        <p><strong>RecHunter</strong> is an automated monitoring agent for Recreation.gov. It watches for campground, permit, and timed-entry availability — and alerts you instantly via SMS when slots open up.</p>
+                        <div class="about-features">
+                            <div class="about-feature">
+                                <span class="about-feature-icon">⏱️</span>
+                                <div>
+                                    <strong>Drop Time Mode</strong>
+                                    <p>Precision timing at the exact release moment</p>
+                                </div>
+                            </div>
+                            <div class="about-feature">
+                                <span class="about-feature-icon">🔄</span>
+                                <div>
+                                    <strong>Cancellation Monitor</strong>
+                                    <p>Persistent polling for cancelled reservations</p>
+                                </div>
+                            </div>
+                            <div class="about-feature">
+                                <span class="about-feature-icon">📡</span>
+                                <div>
+                                    <strong>Real-Time Feed</strong>
+                                    <p>Live SSE updates — no manual refreshing</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Add Watch Modal -->
+    <div class="modal-backdrop" id="modal-backdrop">
+        <div class="modal" id="modal-add-watch">
+            <div class="modal-header">
+                <h2>🌲 Add Watch</h2>
+                <button class="modal-close" id="modal-close" aria-label="Close modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="add-watch-form">
+                    <!-- Facility Search -->
+                    <div class="form-group">
+                        <label for="watch-facility-search">Search Facility</label>
+                        <div class="search-wrapper">
+                            <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            <input type="text" id="watch-facility-search" placeholder="Search campgrounds, permits…" autocomplete="off">
+                            <div class="search-spinner" id="search-spinner" style="display:none;"></div>
+                            <div class="search-results" id="search-results" style="display:none;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Selected Facility Preview -->
+                    <div class="selected-facility" id="selected-facility" style="display:none;">
+                        <div class="selected-facility-info">
+                            <span class="selected-facility-name" id="selected-facility-name"></span>
+                            <span class="selected-facility-meta" id="selected-facility-meta"></span>
+                        </div>
+                        <button type="button" class="btn-icon" id="clear-facility" aria-label="Clear selection">&times;</button>
+                    </div>
+                    <input type="hidden" id="watch-facility-id">
+
+                    <!-- Watch Name -->
+                    <div class="form-group">
+                        <label for="watch-name">Watch Name</label>
+                        <input type="text" id="watch-name" placeholder="e.g. Yosemite Half Dome Aug 15" required>
+                    </div>
+
+                    <!-- Reservation Type -->
+                    <div class="form-group">
+                        <label for="watch-type">Reservation Type</label>
+                        <select id="watch-type" required>
+                            <option value="" disabled selected>Select type…</option>
+                            <option value="campground">🏕️ Campground</option>
+                            <option value="permit">🏔️ Permit</option>
+                            <option value="timed_entry">🎫 Timed Entry</option>
+                        </select>
+                    </div>
+
+                    <!-- Sub-entity (Entrance/Tour) Selector -->
+                    <div class="form-group" id="watch-sub-entity-group" style="display:none;">
+                        <label>Specific Entrances / Tours <span class="optional">(select one or more, optional)</span></label>
+                        <div class="sub-entity-checkbox-container" id="watch-sub-entity-list">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Date Range -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="watch-date-start">Start Date</label>
+                            <input type="date" id="watch-date-start" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="watch-date-end">End Date <span class="optional">(optional)</span></label>
+                            <input type="date" id="watch-date-end">
+                        </div>
+                    </div>
+
+                    <!-- Mode Selector -->
+                    <div class="form-group">
+                        <label>Watch Mode</label>
+                        <div class="mode-selector" id="mode-selector">
+                            <label class="mode-option">
+                                <input type="radio" name="watch-mode" value="drop_time" checked>
+                                <div class="mode-card">
+                                    <span class="mode-icon">⏱️</span>
+                                    <span class="mode-name">Drop Time</span>
+                                    <span class="mode-desc">Precise release timing</span>
+                                </div>
+                            </label>
+                            <label class="mode-option">
+                                <input type="radio" name="watch-mode" value="cancellation">
+                                <div class="mode-card">
+                                    <span class="mode-icon">🔄</span>
+                                    <span class="mode-name">Cancellation</span>
+                                    <span class="mode-desc">Monitor for cancels</span>
+                                </div>
+                            </label>
+                            <label class="mode-option">
+                                <input type="radio" name="watch-mode" value="one_shot">
+                                <div class="mode-card">
+                                    <span class="mode-icon">🌲</span>
+                                    <span class="mode-name">One Shot</span>
+                                    <span class="mode-desc">Single check only</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Poll Interval -->
+                    <div class="form-group" id="poll-interval-group">
+                        <label for="watch-poll-interval">Poll Interval: <span id="poll-interval-value">5</span> min</label>
+                        <input type="range" id="watch-poll-interval" min="1" max="60" value="5" step="1">
+                        <div class="range-labels">
+                            <span>1 min</span>
+                            <span>60 min</span>
+                        </div>
+                    </div>
+
+                    <!-- Drop Time (conditional) -->
+                    <div class="form-group" id="drop-time-group">
+                        <label for="watch-drop-time">Drop Time (24h format)</label>
+                        <input type="time" id="watch-drop-time" value="07:00">
+                        <span class="form-hint">Time when reservations become available (usually 7:00 AM PT for Rec.gov)</span>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="watch-min-nights">Min Consecutive Nights</label>
+                            <input type="number" id="watch-min-nights" min="1" max="14" value="1">
+                        </div>
+                        <div class="form-group">
+                            <label for="watch-equipment">Equipment / Site Type</label>
+                            <input type="text" id="watch-equipment" placeholder="e.g. Standard, RV, Tent">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-ghost" id="btn-cancel-watch">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btn-create-watch">
+                    🌲 Create Watch
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/api.js?v=3" defer></script>
+    <script src="/static/js/components.js?v=3" defer></script>
+    <script src="/static/js/app.js?v=3" defer></script>
+</body>
+</html>

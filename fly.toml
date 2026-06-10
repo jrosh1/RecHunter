@@ -1,0 +1,41 @@
+# fly.toml configuration file for RecSniper deployment
+#
+# See https://fly.io/docs/reference/configuration/ for details.
+#
+# To deploy:
+# 1. Run `fly launch` to initialize the app (choose to import existing config).
+# 2. When prompted to create a database or configure options, select "Yes" to edit.
+# 3. Ensure a persistent volume named `recsniper_data` of size 1GB is created:
+#    `fly volumes create recsniper_data --size 1`
+# 4. Set secrets for notifications (e.g. GMAIL_ADDRESS, GMAIL_APP_PASSWORD, etc.):
+#    `fly secrets set GMAIL_ADDRESS=your-gmail@gmail.com GMAIL_APP_PASSWORD=your-app-password PHONE_NUMBER=1234567890`
+# 5. Run `fly deploy` to push the container.
+
+app = "recsniper"
+primary_region = "sea"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  HOST = "0.0.0.0"
+  PORT = "8080"
+  DB_PATH = "/data/recsniper.db"
+  LOG_PATH = "/data/recsniper.log"
+
+[[mounts]]
+  source = "recsniper_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # CRITICAL: Keep auto_stop_machines = false so the VM runs 24/7 to poll in the background!
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

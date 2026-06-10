@@ -1,0 +1,56 @@
+# =============================================================================
+# RecHunter Configuration
+# =============================================================================
+# Copy this file to config.yaml and fill in your details.
+# Sensitive values (passwords, API keys) should go in .env instead.
+#
+# For full documentation see README.md.
+
+notifications:
+  # Carrier email-to-SMS gateway
+  # Common gateways:
+  #   T-Mobile / Mint Mobile : tmomail.net
+  #   AT&T                   : txt.att.net
+  #   Verizon                : vtext.com
+  #   Sprint                 : messaging.sprintpcs.com
+  #   Google Fi              : msg.fi.google.com
+  carrier_gateway: "tmomail.net"
+
+  # Gmail address and app password should be set in .env
+  # (GMAIL_ADDRESS and GMAIL_APP_PASSWORD)
+
+# =============================================================================
+# Pre-configured Watches (optional)
+# =============================================================================
+# You can also add / manage watches from the dashboard at runtime.
+
+watches:
+  # ── Drop-time mode ──────────────────────────────────────────────────────
+  # Burst-checks every 3 seconds starting at the drop time for 90 seconds,
+  # then falls back to the normal poll interval.
+  - name: "Upper Pines Dec 4"
+    facility_id: "232447"
+    type: campground
+    date_start: "2026-12-04"
+    date_end: "2026-12-05"
+    mode: drop_time
+    drop_time: "10:00 ET"
+    poll_interval_minutes: 10
+
+  # ── One-shot mode ───────────────────────────────────────────────────────
+  # Runs a single check immediately and reports the result.
+  - name: "Angels Landing Tomorrow"
+    facility_id: "4675309"
+    type: permit
+    date_start: "2026-06-05"
+    mode: one_shot
+
+  # ── Cancellation mode ──────────────────────────────────────────────────
+  # Continuously checks at the configured interval for cancellation openings.
+  - name: "Yosemite Cancellation Watch"
+    facility_id: "232447"
+    type: campground
+    date_start: "2026-07-01"
+    date_end: "2026-07-07"
+    mode: cancellation
+    poll_interval_minutes: 15
